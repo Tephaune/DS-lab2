@@ -83,18 +83,38 @@ ExprResult check_delimiters(const char *text) {
         if (is_opener(c)) {
             // TODO 5a: push this opener. Store the char as a long.
             // If stack_push fails: destroy the stack and return EXPR_OUT_OF_MEMORY.
+            if (!stack_push(&stack, (long)c)) {
+                stack_destroy(&stack);
+                return result(EXPR_OUT_OF_MEMORY, 0, i + 1, "out of memory while pushing delimiter");
+            }
+
         } else if (is_closer(c)) {
             // TODO 5b:
             // 1. pop the most recent opener into a long variable
             // 2. if pop fails, this closer has no opener -> EXPR_UNMATCHED_CLOSER
+            long popped = 0;
+            if (!stack_pop(&stack, &popped)) {
+                stack_destroy(&stack);
+                return result(EXPR_UNMATCHED_CLOSER, 0, i + 1, "unmatched closing delimiter");
+            }
+
             // 3. compare the popped opener with expected_opener(c)
             // 4. if different -> EXPR_MISMATCHED_DELIMITER
             // IMPORTANT: destroy the stack before every early return.
+            if ((char)popped != expected_opener(c)) {
+                stack_destroy(&stack);
+                return result(EXPR_MISMATCHED_DELIMITER, 0, i + 1, "mismatched delimiter type");
+            }
         }
     }
 
     // TODO 5c: if the stack is not empty, at least one opener was never closed.
     // Return EXPR_UNCLOSED_OPENER. Otherwise return EXPR_OK.
+    if (!stack_is_empty(&stack)) {
+        stack_destroy(&stack);
+        return result(EXPR_UNCLOSED_OPENER, 0, strlen(text), "unclosed opening delimiter");
+    }
+
     stack_destroy(&stack);
     return result(EXPR_OK, 0, 0, "balanced");
 }
@@ -118,6 +138,12 @@ ExprResult eval_postfix(const char *expression, bool trace) {
             // TODO 6a: numbers are operands waiting to be used -> PUSH number.
             // Handle allocation failure by freeing copy, destroying the stack,
             // and returning EXPR_OUT_OF_MEMORY.
+            if (!stack_push(&operands, number)) {
+                free(copy);
+                stack_destroy(&operands);
+                return result(EXPR_OUT_OF_MEMORY, 0, token_number, "out of memory pushing operand");
+            }
+
         } else if (is_operator_token(token)) {
             // TODO 6b: an operator consumes the TWO most recent operands.
             // Pop RIGHT first, then LEFT. This order matters for '-' '/' '%'.
@@ -126,9 +152,27 @@ ExprResult eval_postfix(const char *expression, bool trace) {
             long computed = 0;
 
             // If either pop fails, return EXPR_TOO_FEW_OPERANDS after cleanup.
+            if (!stack_pop(&operands, &right) || !stack_pop(&operands, &left)) {
+                free(copy);
+                stack_destroy(&operands);
+                return result(EXPR_TOO_FEW_OPERANDS, 0, token_number, "too few operands for operator");
+            }
+
             // Then call apply_operator(token[0], left, right, &computed).
             // If it returns false, this lab treats that as divide/modulo by zero.
+            if (!apply_operator(token[0], left, right, &computed)) {
+                free(copy);
+                stack_destroy(&operands);
+                return result(EXPR_DIVIDE_BY_ZERO, 0, token_number, "division or modulo by zero");
+            }
+
             // Finally PUSH computed back: it may be needed by a later operator.
+            if (!stack_push(&operands, computed)) {
+                free(copy);
+                stack_destroy(&operands);
+                return result(EXPR_OUT_OF_MEMORY, 0, token_number, "out of memory pushing result");
+            }
+
             (void)right;
             (void)left;
             (void)computed;
@@ -153,7 +197,19 @@ ExprResult eval_postfix(const char *expression, bool trace) {
     // * 0 values => too few operands / empty expression
     // * more than 1 => too many operands
     // * exactly 1 => pop it as the final answer, destroy stack, return EXPR_OK
+    size_t size = stack_size(&operands);
+    if (size == 0) {
+        stack_destroy(&operands);
+        return result(EXPR_TOO_FEW_OPERANDS, 0, token_number, "expression produced no result");
+    }
 
+    if (size > 1) {
+        stack_destroy(&operands);
+        return result(EXPR_TOO_MANY_OPERANDS, 0, token_number, "expression left multiple operands on stack");
+    }
+
+    long final_value = 0;
+    (void)stack_pop(&operands, &final_value);
     stack_destroy(&operands);
-    return result(EXPR_TOO_FEW_OPERANDS, 0, token_number, "expression did not produce one result");
+    return result(EXPR_OK, final_value, 0, "success");
 }

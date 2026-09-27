@@ -31,9 +31,21 @@ bool stack_push(Stack *stack, long value) {
     //   5. move stack->top to the new node
     //   6. increment size
     //   7. return true
-    (void)stack;
-    (void)value;
-    return false;
+    if (stack == NULL) {
+        return false;
+    }
+
+    StackNode *new_node = malloc(sizeof *new_node);
+    if (new_node == NULL) {
+        return false;
+    }
+
+    new_node->value = value;
+    new_node->next = stack->top;
+    stack->top = new_node;
+    stack->size++;
+
+    return true;
 }
 
 bool stack_pop(Stack *stack, long *out) {
@@ -46,17 +58,28 @@ bool stack_pop(Stack *stack, long *out) {
     //   5. free temp
     //   6. decrement size
     //   7. return true
-    (void)stack;
-    (void)out;
-    return false;
+    if (stack == NULL || stack_is_empty(stack) || out == NULL) {
+        return false;
+    }
+
+    StackNode *temp = stack->top;
+    *out = temp->value;
+    stack->top = temp->next;
+    free(temp);
+    stack->size--;
+
+    return true;
 }
 
 bool stack_peek(const Stack *stack, long *out) {
     // TODO 3: if empty return false; otherwise copy the top value to *out.
     // IMPORTANT: peek must NOT remove or free anything.
-    (void)stack;
-    (void)out;
-    return false;
+    if (stack == NULL || stack_is_empty(stack) || out == NULL) {
+        return false;
+    }
+
+    *out = stack->top->value;
+    return true;
 }
 
 bool stack_is_empty(const Stack *stack) { return stack->top == NULL; }
@@ -96,6 +119,20 @@ bool stack_check_invariant(const Stack *stack) {
     // TODO 4: count the reachable nodes and verify the two invariant rules in
     // stack.h. This is deliberately a little different from push/pop: it makes
     // you reason about what a *valid* stack must always mean.
-    (void)stack;
-    return false;
+    if (stack == NULL) {
+        return false;
+    }
+
+    // Rule 1: top == NULL exactly when size == 0
+    if ((stack->top == NULL && stack->size != 0) || (stack->top != NULL && stack->size == 0)) {
+        return false;
+    }
+
+    // Rule 2: number of reachable nodes from top must match stack->size
+    size_t count = 0;
+    for (const StackNode *curr = stack->top; curr != NULL; curr = curr->next) {
+        count++;
+    }
+
+    return count == stack->size;
 }
